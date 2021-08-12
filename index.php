@@ -1,38 +1,60 @@
 <?php
+session_start();
+session_regenerate_id();
+if (!isset($_SESSION['userId'])) {
+  header('Location: http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 'login.php');
+}
+
 require_once("./db.php");
 $res = null;
 $info  = null;
 $editTarget = null;
+
 if ($_SERVER["REQUEST_METHOD"] === "GET") {
   if (isset($_GET['edit_todo_id'])) {
-    $stt = $db->prepare('SELECT * FROM todo_list WHERE todo_id = :id;');
+    // 編集
+    $stt = $db->prepare('SELECT * FROM todo_list WHERE todo_id = :id AND userId = :userId;');
     $stt->bindValue(':id', $_GET['edit_todo_id']);
+    $stt->bindValue(':userId',  $_SESSION['userId']);
     $stt->execute();
     $editTarget = $stt->fetch(PDO::FETCH_ASSOC);
+    $editTarget['link'] = true;
   };
-  $res = $db->query("SELECT * FROM todo_list ORDER BY expected_date;");
+  $stt = $db->prepare("SELECT * FROM todo_list  WHERE userId = :userId ORDER BY expected_date;");
+  $stt->bindValue(':userId', $_SESSION['userId']);
+  $stt->execute();
+  $list = $stt;
 }
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
   if ($_POST['date'] === '' || $_POST['content'] === '') {
-    // 不正な入力
-    $res = $db->query("SELECT * FROM todo_list ORDER BY expected_date");
+    $stt = $db->prepare("SELECT * FROM todo_list WHERE userId = :userId  ORDER BY expected_date;");
+    $stt->bindValue(':userId', $_SESSION['userId']);
+    $stt->execute();
+    $list = $stt;
     $info = "正しい値を入力してください。";
+    $editTarget['expected_date'] = $_POST['date'];
+    $editTarget['content'] = $_POST['content'];
   } else if (isset($_GET['edit_todo_id'])) {
     echo $_GET['edit_todo_id'];
-    $stt = $db->prepare("UPDATE todo_list SET  content= :content, expected_date= :date WHERE todo_id = :id");
+    $stt = $db->prepare("UPDATE todo_list SET  content= :content, expected_date= :date WHERE todo_id = :id AND userId = :userId;");
     $stt->bindValue(':content', $_POST['content']);
     $stt->bindValue(':date', $_POST['date']);
     $stt->bindValue(':id', $_GET['edit_todo_id']);
+    $stt->bindValue(':userId', $_SESSION['userId']);
     $stt->execute();
     header('Location: http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 'index.php');
   } else {
-    $stt = $db->prepare("INSERT INTO todo_list VALUES ('Primary key', :content, :date)");
+    $stt = $db->prepare("INSERT INTO todo_list VALUES ('Primary key', :content, :date, :userId)");
     $stt->bindValue(':content', $_POST['content']);
     $stt->bindValue(':date', $_POST['date']);
+    $stt->bindValue(':userId', $_SESSION['userId']);
     $stt->execute();
-    $res = $db->query("SELECT * FROM todo_list");
+    $stt = $db->prepare("SELECT * FROM todo_list  WHERE userId = :userId ORDER BY expected_date;");
+    $stt->bindValue(':userId', $_SESSION['userId']);
+    $stt->execute();
+    $list = $stt;
+    header('Location: http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 'index.php');
   }
-  header('Location: http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . 'index.php');
 }
 ?>
 
@@ -51,21 +73,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
   <div class="root">
     <div class="container">
       <h1>TODOリスト</h1>
+      <a href="logout.php">ログアウト</a>
+      <div class="module-spacer--sm"></div>
       <form action="" method="POST">
-        <?php if (!is_null($info)) { ?>
+        <?php if (isset($info)) { ?>
           <p style="color: red"><?php echo $info; ?></p>
         <?php } ?>
         <label>
           日付
-          <input name="date" type="date" value="<?php echo $editTarget ? $editTarget['expected_date'] : ''; ?>" />
+          <input name="date" type="date" value="<?php echo $editTarget ? htmlspecialchars($editTarget['expected_date'], ENT_QUOTES | ENT_HTML5) : ''; ?>" />
         </label>
         <label>
           項目
-          <input name="content" type="text" value="<?php echo $editTarget ? $editTarget['content'] : ''; ?>" />
+          <input name="content" type="text" value="<?php echo $editTarget ? htmlspecialchars($editTarget['content'], ENT_QUOTES | ENT_HTML5) : ''; ?>" />
         </label>
         <input type="submit" value="登録" />
       </form>
-      <?php $editTarget && print '<a href="/">登録画面に移動する。</a>'; ?>
+      <?php isset($editTarget['link']) && print '<a href="/">登録画面に移動する。</a>'; ?>
       <div class="module-spacer--sm"></div>
       <table class="table" border="5" bordercolor="orange">
         <tr>
@@ -75,7 +99,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
           <th>編集</th>
         </tr>
         <?php
-        while ($data = $res->fetch(PDO::FETCH_ASSOC)) :
+        while ($data = $list->fetch(PDO::FETCH_ASSOC)) :
         ?>
           <tr>
             <td>
